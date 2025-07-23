@@ -1,0 +1,337 @@
+<!-- Copyright 2025 Browser Gameware. All Rights Reserved. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Circlis | Browser Gameware</title>
+    <link rel="stylesheet" href="https://cdn360.pages.dev/gameware/fonts/library/.css">
+    <script type="module" src="https://webtelegraph.pages.dev/inventions/zeroclick/zeroclick.js"></script>
+    <script src="https://gwefan.pages.dev/library/musicbutton.js"></script>
+    <style>
+        body {
+            font-family: 'Barclay Sans', sans-serif;
+            margin: 0;
+            background: #0A0A0F;
+            color: #FAFAFA;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #scoreDisplay {
+            color: #FFD700;
+            font-feature-settings: "tnum";
+            font-size: 1.5em;
+            margin-top: 10px;
+            user-select: none;
+            text-align: center;
+        }
+
+        canvas {
+            background: #1B1E28;
+            border-radius: 50%;
+            margin-top: 10px;
+            touch-action: none;
+        }
+
+        #gameOver {
+            position: absolute;
+            color: #FF3C38;
+            font-size: 2em;
+            text-align: center;
+            display: none;
+            z-index: 10;
+            user-select: none;
+            pointer-events: none;
+        }
+
+        #controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        label {
+            font-size: 1em;
+        }
+
+        #mobileControls {
+            display: none;
+            margin-top: 10px;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .mobile-btn {
+            background: #2C2F3A;
+            border: none;
+            color: #ffffff;
+            font-size: 1.2em;
+            padding: 10px 20px;
+            border-radius: 10px;
+            touch-action: manipulation;
+            user-select: none;
+        }
+
+        @media (max-width: 768px) {
+            #mobileControls {
+                display: flex;
+            }
+        }
+    </style>
+</head>
+<body>
+    <music-button icon-only position="bottomright" loop src="https://cdn360.pages.dev/gametrust/music/katyusha.mp3"></music-button>
+
+    <div id="scoreDisplay">Current Score: 0 | High Score: 0</div>
+    <canvas id="gameCanvas"></canvas>
+    <div id="gameOver">Game Over!<br>Press 'R' or tap "Restart"</div>
+
+    <div id="controls">
+        <label><input type="checkbox" id="dynamicToggle"/>Dynamic Play</label>
+    </div>
+
+    <div id="mobileControls">
+        <button class="mobile-btn" id="leftBtn">◀ Left</button>
+        <button class="mobile-btn" id="startBtn">Start</button>
+        <button class="mobile-btn" id="rightBtn">Right ▶</button>
+        <button class="mobile-btn" id="restartBtn" style="display: none;">Restart</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameOverDiv = document.getElementById('gameOver');
+        const dynamicToggle = document.getElementById('dynamicToggle');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+
+        let canvasSize = window.innerWidth <= 400 ? 320 :
+        window.innerWidth <= 768 ? 450 : 600;
+        canvas.width = canvasSize;
+        canvas.height = canvasSize;
+
+        let centerX = canvas.width / 2;
+        let centerY = canvas.height / 2;
+        let radius = canvas.width / 2 - 50;
+
+        let ball, paddle, animationId;
+        let gameStarted = false;
+        let speedScale, speedIncrement = 0;
+        const keys = { left: false, right: false };
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('circlisHighScore')) || 0;
+
+        function updateGameOverPosition() {
+            const rect = canvas.getBoundingClientRect();
+            gameOverDiv.style.left = `${rect.left + canvas.width / 2}px`;
+            gameOverDiv.style.top = `${rect.top + canvas.height / 2}px`;
+            gameOverDiv.style.transform = 'translate(-50%, -50%)';
+        }
+
+        function showGameOver() {
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('circlisHighScore', highScore);
+            }
+            updateScoreDisplay();
+            updateGameOverPosition();
+            gameOverDiv.innerHTML = `Game Over!<br>Score: ${score} | High Score: ${highScore}<br>Press 'R' or tap "Restart"`;
+            gameOverDiv.style.display = 'block';
+            document.getElementById('restartBtn').style.display = 'inline-block';
+        }
+
+        function updateScoreDisplay() {
+            scoreDisplay.textContent = `Current Score: ${score} | High Score: ${highScore}`;
+        }
+
+        function resetGame() {
+            centerX = canvas.width / 2;
+            centerY = canvas.height / 2;
+            radius = canvas.width / 2 - 50;
+            const baseCanvasSize = 600;
+            speedScale = canvasSize / baseCanvasSize;
+            speedIncrement = 0;
+            score = 0;
+            updateScoreDisplay();
+
+            const angle = Math.PI / 4;
+            const speed = 3 * speedScale;
+
+            ball = {
+                x: centerX,
+                y: centerY,
+                radius: 8,
+                dx: speed * Math.cos(angle),
+                dy: speed * Math.sin(angle),
+                baseSpeed: speed
+            };
+
+            paddle = {
+                angle: 0,
+                speed: 0.05,
+                width: Math.PI / 8,
+                radius: radius
+            };
+
+            keys.left = false;
+            keys.right = false;
+            gameStarted = false;
+            gameOverDiv.style.display = 'none';
+            document.getElementById('restartBtn').style.display = 'none';
+            cancelAnimationFrame(animationId);
+            drawStartScreen();
+        }
+
+        function drawStartScreen() {
+            clearCanvas();
+            drawCircle();
+            drawBall();
+            drawPaddle();
+            ctx.fillStyle = '#FAFAFA';
+            ctx.font = '16px Barclay Sans';
+            ctx.textAlign = 'center';
+            ctx.fillText("Press SPACE / Arrows / Tap Start", centerX, centerY);
+            if (!gameStarted) animationId = requestAnimationFrame(drawStartScreen);
+        }
+
+        function startGame() {
+            if (gameStarted) return;
+            gameStarted = true;
+            cancelAnimationFrame(animationId);
+            gameLoop();
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawCircle() {
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = '#444';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        function drawBall() {
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#FAFAFA';
+            ctx.fill();
+        }
+
+        function drawPaddle() {
+            const startAngle = paddle.angle;
+            const endAngle = paddle.angle + paddle.width;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, paddle.radius, startAngle, endAngle);
+            ctx.strokeStyle = '#00FF99';
+            ctx.lineWidth = 10;
+            ctx.stroke();
+        }
+
+        function updatePaddle() {
+            if (keys.left) paddle.angle -= paddle.speed;
+            if (keys.right) paddle.angle += paddle.speed;
+        }
+
+        function updateBall() {
+            if (dynamicToggle.checked) speedIncrement += 0.0005;
+            const multiplier = 1 + speedIncrement;
+
+            const prevX = ball.x;
+            const prevY = ball.y;
+
+            ball.x += ball.dx * multiplier;
+            ball.y += ball.dy * multiplier;
+
+            const prevDist = Math.hypot(prevX - centerX, prevY - centerY);
+            const currDist = Math.hypot(ball.x - centerX, ball.y - centerY);
+            const boundary = radius - ball.radius;
+
+            if (currDist >= boundary && prevDist < boundary) {
+                const angleToBall = Math.atan2(ball.y - centerY, ball.x - centerX);
+                const normAngle = (angleToBall + 2 * Math.PI) % (2 * Math.PI);
+                const padStart = (paddle.angle + 2 * Math.PI) % (2 * Math.PI);
+                const padEnd = (padStart + paddle.width) % (2 * Math.PI);
+
+                const hit = padStart < padEnd
+                ? normAngle >= padStart && normAngle <= padEnd
+                : normAngle >= padStart || normAngle <= padEnd;
+
+                if (hit) {
+                    const paddleCenter = (padStart + paddle.width / 2) % (2 * Math.PI);
+                    let diff = normAngle - paddleCenter;
+                    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+                    const deflection = 0.4 * (diff / (paddle.width / 2));
+                    const newAngle = angleToBall + Math.PI + deflection;
+
+                    const speed = Math.hypot(ball.dx, ball.dy);
+                    ball.dx = speed * Math.cos(newAngle);
+                    ball.dy = speed * Math.sin(newAngle);
+
+                    score++;
+                    updateScoreDisplay();
+                } else {
+                    showGameOver();
+                    cancelAnimationFrame(animationId);
+                }
+            } else if (currDist - ball.radius >= radius) {
+                showGameOver();
+                cancelAnimationFrame(animationId);
+            }
+        }
+
+        function gameLoop() {
+            clearCanvas();
+            drawCircle();
+            drawBall();
+            drawPaddle();
+            updatePaddle();
+            updateBall();
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        // Controls
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a') { keys.left = true; startGame(); }
+            if (e.key === 'ArrowRight' || e.key === 'd') { keys.right = true; startGame(); }
+            if (e.key === ' ') startGame();
+            if (e.key.toLowerCase() === 'r') resetGame();
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = false;
+            if (e.key === 'ArrowRight' || e.key === 'd') keys.right = false;
+        });
+
+        document.getElementById('leftBtn').addEventListener('touchstart', (e) => {
+            e.preventDefault(); keys.left = true; startGame();
+        });
+        document.getElementById('leftBtn').addEventListener('touchend', (e) => {
+            e.preventDefault(); keys.left = false;
+        });
+
+        document.getElementById('rightBtn').addEventListener('touchstart', (e) => {
+            e.preventDefault(); keys.right = true; startGame();
+        });
+        document.getElementById('rightBtn').addEventListener('touchend', (e) => {
+            e.preventDefault(); keys.right = false;
+        });
+
+        document.getElementById('startBtn').addEventListener('click', startGame);
+        document.getElementById('restartBtn').addEventListener('click', resetGame);
+        window.addEventListener('resize', updateGameOverPosition);
+
+        resetGame();
+    </script>
+</body>
+</html>
